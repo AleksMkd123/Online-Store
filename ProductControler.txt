@@ -1,0 +1,379 @@
+using ProductStoreApp.Models;
+using ProductStoreApp.Models.Interface;
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Web;
+using System.Web.Helpers;
+using System.Web.Mvc;
+using System.Data.Entity;
+using WebApplication2.Models;
+using System.IO;
+
+namespace WebApplication2.Controllers
+{
+    public class ProductController : Controller
+    {
+        ProductStoreEntities db = new ProductStoreEntities();
+        private IProductInt<Product> _prodObj;
+        private IProductInt<Category> _catObj;
+        private IProductInt<Image> _imgObj;
+        private IProductInt<SubCategory> _subcatObj;
+        public ProductController()
+        {
+            this._prodObj = new ProductRepo<Product>();
+            this._catObj = new ProductRepo<Category>();
+            this._imgObj = new ProductRepo<Image>();
+            this._subcatObj = new ProductRepo<SubCategory>();
+        }
+        public ActionResult Looking(int? catId)
+        {
+            List<Product> ls = _prodObj.GetLibraries().Where(x => x.IsDeleted == null).OrderBy(x=> x.Sorting).ToList();
+            List<Category> mm = _catObj.GetLibraries().ToList();
+            List<SubCategory> subcat = _subcatObj.GetLibraries().ToList();
+
+            Product prms = new Product();
+
+            ProductModels pr = new ProductModels();
+            pr.ListCat = mm;
+            pr.ListProd = ls;
+            pr.ListSubCat = subcat;
+            pr.Product = prms;
+            //var m = _prodObj.GetLibraries().Where(x => x.IsDeleted == 0);
+            return View(pr);
+        }
+        public ActionResult GetSearchRecord(string SearchText)
+        {
+            var lists = _prodObj.GetLibraries().Where(x => x.ProductName.Contains(SearchText) || x.Category.CategoryName.Contains(SearchText)).ToList();
+
+            return PartialView("SearchPartial", lists);
+        }
+        // GET: Product
+        public ActionResult Index()
+        {
+            var m = _prodObj.GetLibraries().Where(x => x.IsDeleted == null).OrderBy(x=> x.Sorting);
+            return View(m);
+        }
+        // GET: Product/Details/5
+        public ActionResult Details(int id)
+        {
+           var m = _prodObj.GetLibById(id);
+
+            if(m == null)
+            {
+                return Content("The Page does not Exist");
+            }
+           return View(m);
+        }
+      
+        public ActionResult Create()
+        {
+            var m = _catObj.GetLibraries().ToList();
+            ViewBag.CatList = new SelectList(m, "CategoryId", "CategoryName");
+            return View();
+        }
+        public ActionResult FirstPage()
+        {
+            var m = _catObj.GetLibraries();
+
+            ViewBag.List = new SelectList(m, "CategoryId", "CategoryName");
+            return View();
+        }
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public ActionResult Create(Product PR, HttpPostedFileBase files /*, HttpPostedFileBase[] files*/)
+        {
+            ProductStoreEntities db = new ProductStoreEntities();
+            try
+            {
+                int id = 0;
+                if (ModelState.IsValid)
+                {
+                    if(db.Products.Any(x=> x.ProductName == PR.ProductName))
+                    {
+                        ModelState.AddModelError("", "That Product Name already Exist");
+                        TempData["MM"] = "That Product Name already Exist";
+                        //return RedirectToAction("Create","Product");
+                        return RedirectToAction("Create","Product", TempData["MM"]);
+                    }
+                    _prodObj.InsertLib(PR);
+                    _prodObj.Save();
+
+                     id = PR.ProductId;
+                }
+                var originalDiretory = new DirectoryInfo(string.Format("{0}Images\\Uploads", Server.MapPath(@"\")));
+
+                var path = Path.Combine(originalDiretory.ToString(), "Products");
+                var path2 = Path.Combine(originalDiretory.ToString(), "Products\\" + id.ToString());
+                var path3 = Path.Combine(originalDiretory.ToString(), "Products\\" + id.ToString() + "\\Thumbs");
+                var path4 = Path.Combine(originalDiretory.ToString(), "Products\\" + id.ToString() + "\\Gallery");
+                var path5 = Path.Combine(originalDiretory.ToString(), "Products\\" + id.ToString()+ "\\Gallery\\Thumbs");
+
+                if (!Directory.Exists(path))
+                    Directory.CreateDirectory(path);
+                if (!Directory.Exists(path2))
+                    Directory.CreateDirectory(path2);
+                if (!Directory.Exists(path3))
+                    Directory.CreateDirectory(path3);
+                if (!Directory.Exists(path4))
+                    Directory.CreateDirectory(path4);
+                if (!Directory.Exists(path5))
+                    Directory.CreateDirectory(path5);
+
+
+                if(files != null && files.ContentLength > 0)
+                {
+                    string exten = files.ContentType.ToLower();
+                    if (exten != "image/jpg" &&
+                        exten != "image/jpeg" &&
+                        exten != "image/pjepg" &&
+                        exten != "image/gif" &&
+                        exten != "image/x-png" &&
+                        exten != "image/png")
+                    {
+                        ModelState.AddModelError("", "The image was not uploaded: Wrong image extension");
+                        return View(PR);
+                    }
+                }
+
+                string imageName = files.FileName;
+
+                Product dto = db.Products.Find(id);
+                dto.ImageName = imageName;
+                db.SaveChanges();
+
+                var pathStr = string.Format("{0}\\{1}", path2, imageName);
+                var pathstr = string.Format("{0}\\{1}", path3, imageName);
+
+                files.SaveAs(pathStr);
+
+                WebImage img = new WebImage(files.InputStream);
+                img.Resize(200, 200);
+                img.Save(path2);
+
+                TempData["SM"] = "You Added new Product";
+
+                return RedirectToAction("Index");
+            }
+            catch(Exception ex)
+            {
+                ViewData["Message"] = "Something went wrong.Please contact your Support Team" + ex.Message;
+                return View(PR);
+            }
+        }
+        [HttpPost]
+        public ActionResult AddToCart(int ProductId,int quantities)
+        {
+            try
+            {
+                if (ModelState.IsValid)
+                {
+                 bool IsTrue = false;
+                 ProductStoreEntities db = new ProductStoreEntities();
+                 var addedItem = db.Products.Single(x => x.ProductId == ProductId);
+                if(quantities > addedItem.Quantity)
+                {
+                ViewBag.Message = IsTrue;
+                }
+                else
+                {
+                addedItem.Quantity = quantities;
+                }
+            var cart = ShopingCart.GetCart(this.HttpContext);
+            cart.AddtoCart(addedItem);
+            }
+                return RedirectToAction("Index", "ShopingCart");
+            }
+            catch
+            {
+                return RedirectToAction("Looking");
+            }
+        }
+        private bool ValidateFile(HttpPostedFileBase file)
+        {
+            string fileExtension = System.IO.Path.GetExtension(file.FileName).ToLower();
+            string[] allowedFileTypes = { ".gif", ".png", ".jpeg", ".jpg" };
+
+            if ((file.ContentLength > 0 && file.ContentLength < 2097152) && allowedFileTypes.Contains(fileExtension))
+            {
+                return true;
+            }
+            return false;
+        }
+        private void SaveFileToDisk(HttpPostedFileBase file)
+        {
+            WebImage img = new WebImage(file.InputStream);
+
+            if (img.Width > 600)
+            {
+                img.Resize(600, img.Height);
+            }
+            img.Save(Constants.ProductImagePath + file.FileName);
+
+            if (img.Width > 150)
+            {
+                img.Resize(150, img.Height);
+            }
+            img.Save(Constants.ProductThumbnailPath + file.FileName);
+        }
+        // GET: Product/Edit/5
+        public ActionResult Edit(int id)
+        {
+            var m = _prodObj.GetLibById(id);
+
+            var l = _catObj.GetLibraries().Where(x => x.CategoryId == m.CategoryId);
+            ViewBag.CatList = new SelectList(l, "CategoryId", "CategoryName");
+            return View(m);
+        }
+        // POST: Product/Edit/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public ActionResult Edit(int id, Product pr, HttpPostedFileBase files)
+        {
+            ProductStoreEntities db = new ProductStoreEntities();
+            try
+            { 
+            if (ModelState.IsValid)
+            {
+                _prodObj.GetLibById(id);
+                if (string.IsNullOrWhiteSpace(pr.ProductName))
+                {
+                    pr.ProductName.Replace(" ", "-").ToLower();
+                }
+                if (db.Products.Where(x => x.ProductId != id).Any(x => x.ProductName == pr.ProductName))
+                {
+                    TempData["EM"] = "There is already product with that Name";
+
+                    //ModelState.AddModelError("", "Product Name already Exist");
+                    return RedirectToAction("Index");
+                }
+                db.Entry(pr).State = System.Data.Entity.EntityState.Modified;
+                    db.SaveChanges();
+                }
+            if(files != null && files.ContentLength > 0)
+                {
+                    string exten = files.ContentType.ToLower();
+                    if (exten != "image/jpg" &&
+                      exten != "image/jpeg" &&
+                      exten != "image/pjepg" &&
+                      exten != "image/gif" &&
+                      exten != "image/x-png" &&
+                      exten != "image/png")
+                    {
+                        ModelState.AddModelError("", "The image was not uploaded: Wrong image extension");
+                        return View(pr);
+                    }
+                }
+                var originalDiretory = new DirectoryInfo(string.Format("{0}Images\\Uploads", Server.MapPath(@"\")));
+
+                var pathString1 = Path.Combine(originalDiretory.ToString(), "Products\\" + id.ToString());
+                var pathString2 = Path.Combine(originalDiretory.ToString(), "Products\\" + id.ToString() + "\\Thumbs");
+
+                DirectoryInfo dlr1 = new DirectoryInfo(pathString1);
+                DirectoryInfo dlr2 = new DirectoryInfo(pathString2);
+
+                foreach(FileInfo file2 in dlr1.GetFiles())
+                    file2.Delete();
+                foreach(FileInfo file3 in dlr2.GetFiles())
+                    file3.Delete();
+
+                string imageName = files.FileName;
+
+                Product prod = db.Products.Find(id);
+                prod.ImageName = imageName;
+                db.SaveChanges();
+
+
+                var pathStr = string.Format("{0}\\{1}", pathString1, imageName);
+                var pathstr = string.Format("{0}\\{1}", pathString2, imageName);
+
+                files.SaveAs(pathStr);
+
+
+                WebImage img = new WebImage(files.InputStream);
+                img.Resize(300, 300);
+                img.Save(pathstr);
+
+                TempData["SM"] = "You Edit the Page";
+            return RedirectToAction("Index");
+        }
+            catch
+            {
+                TempData["EM"] = "There is already product with that Name";
+                return RedirectToAction("Index");
+    }
+}
+        // GET: Product/Delete/5
+        public ActionResult Delete(int id)
+        {
+            var m = _prodObj.GetLibById(id);
+            return View(m);
+        }
+        // POST: Product/Delete/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public ActionResult Delete(int id, Product prod)
+        {
+            try
+            {
+                if (ModelState.IsValid)
+                {
+                    //prod = _prodObj.GetLibraries().SingleOrDefault(x => x.IsDeleted == null && x.ProductId == id);
+                    prod = db.Products.SingleOrDefault(x => x.IsDeleted == null && x.ProductId == id);
+                    if(prod != null)
+                    {
+                        prod.IsDeleted = 1;
+                        db.Products.Remove(prod);
+                        db.SaveChanges();
+                        //_prodObj.DeleteLib(id);
+                        //_prodObj.Save();
+                    }
+                    var originalDirectory = new DirectoryInfo(string.Format("{0}Images\\Uploads", Server.MapPath(@"\")));
+
+                    string pathString = Path.Combine(originalDirectory.ToString(), "Products\\" + id.ToString());
+
+                    if (Directory.Exists(pathString))
+                        Directory.Delete(pathString,true);
+                }
+                return RedirectToAction("Index");
+            }
+            catch(Exception ex)
+            {
+                string message =  ex.Message;
+                return View(message);
+            }
+        }
+        [HttpPost]
+        public ActionResult ReorderPages(int[] id)
+        {
+            ProductStoreEntities db = new ProductStoreEntities();
+            int count = 1;
+
+            Product prod = new Product();
+
+            foreach(var pageId in id)
+            {
+                prod = db.Products.Find(pageId);
+                prod.Sorting = count;
+                db.SaveChanges();
+                count++;
+            }
+            return RedirectToAction("Looking");
+        }
+        public ActionResult LIst()
+        {
+            var m = _prodObj.GetLibraries().Where(x => x.IsDeleted == null);
+            return View(m);
+        }
+        public ActionResult CatSubCat()
+        {
+            ConcatClass cc = new ConcatClass();
+            ProductStoreEntities db = new ProductStoreEntities();
+
+            cc.Categories = db.Categories.Include(x => x.SubCategories);
+
+            return View(cc);
+        }
+    }
+}

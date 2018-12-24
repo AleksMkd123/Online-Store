@@ -1,0 +1,148 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+using System.Web.Mvc;
+using WebApplication2.Models;
+
+namespace ProductStoreApp.Models
+{
+    public class ShopingCart
+    {
+        ProductStoreEntities db = new ProductStoreEntities();
+
+        public string ShopingCartId { get; set; }
+
+        public const string CartSessionKey = "CartId";
+
+        public static ShopingCart GetCart(HttpContextBase context)
+        {
+            var cart = new ShopingCart();
+            cart.ShopingCartId = cart.GetCartId(context);
+            return cart;
+        }
+        public static ShopingCart GetCart(Controller controller)
+        {
+            return GetCart(controller.HttpContext);
+        }
+        public void AddtoCart(Product prod)
+        {
+            var prodItem = db.Carts.FirstOrDefault(x => x.CartId == ShopingCartId && x.ProductId == prod.ProductId);
+
+            if (prodItem == null)
+            {
+                prodItem = new Cart
+                {
+                    ProductId = prod.ProductId,
+                    CartId = ShopingCartId,
+                    Count = 1,
+                    Quantity = prod.Quantity
+                };
+                db.Carts.Add(prodItem);
+            }
+            else
+            {
+                prodItem.Count++;
+                prodItem.Quantity++;
+               
+            }
+            db.SaveChanges();
+        }
+        public int RemoveFromCart(int id)
+        {
+            var ProdItem = db.Carts.Single(x => x.CartId == ShopingCartId && x.RecordId == id);
+
+            int itemCount = 0;
+            if (ProdItem != null)
+            {
+                if (ProdItem.Count > 1)
+                {
+                    ProdItem.Count--;
+                    itemCount = ProdItem.Count;
+                }
+                else
+                {
+                    db.Carts.Remove(ProdItem);
+                }
+                db.SaveChanges();
+            }
+            return itemCount;
+        }
+        public int CreateOrder(Order order)
+        {
+            decimal orderTotal = 0;
+            var cartItem = GetCartItem();
+
+            foreach(var item in cartItem)
+            {
+                var orderDetails = new OrderDetail
+                {
+                    ProductId = item.ProductId,
+                    OrderId = order.OrderId,
+                    Price = item.Product.Price,
+                    Quantity = item.Quantity
+                };
+                orderTotal += (item.Count * item.Product.Price);
+                db.OrderDetails.Add(orderDetails);
+            }
+            order.Total = orderTotal;
+            db.SaveChanges();
+
+            EmptyCart();
+            return order.OrderId;
+        }
+        public string GetCartId(HttpContextBase context)
+        {
+            if(context.Session[CartSessionKey] == null)
+            {
+                if (!string.IsNullOrWhiteSpace(context.User.Identity.Name))
+                {
+                    context.Session[CartSessionKey] = context.User.Identity.Name;
+                }
+                else
+                {
+                    Guid tempCartId = Guid.NewGuid();
+                    context.Session[CartSessionKey] = tempCartId.ToString();
+                }
+            }
+            return context.Session[CartSessionKey].ToString();
+        }
+        public void MigrateCart(string Email)
+        {
+            var shopCart = db.Carts.Where(x => x.CartId == ShopingCartId);
+            foreach(Cart item in shopCart)
+            {
+                item.CartId = Email;
+            }
+            db.SaveChanges();
+        }
+        public void EmptyCart()
+        {
+            var cartItems = db.Carts.Where(x => x.CartId == ShopingCartId);
+            foreach (var l in cartItems)
+            {
+                db.Carts.Remove(l);
+            }
+            db.SaveChanges();
+        }
+        public List<Cart> GetCartItem()
+        {
+            return db.Carts.Where(X => X.CartId == ShopingCartId).ToList();
+        }
+        public int GetCount()
+        {
+            int? count = (from prodItem in db.Carts
+                         where prodItem.CartId == ShopingCartId
+                         select (int?)prodItem.Quantity).Sum();
+            return count ?? 0;
+        }
+        public decimal GetTotal()
+        {
+            decimal? total = (from cartItem in db.Carts
+                              where cartItem.CartId == ShopingCartId
+                              select (int?)cartItem.Quantity *
+                cartItem.Product.Price).Sum();
+            return total ?? decimal.Zero;
+        }
+    }
+}

@@ -1,0 +1,104 @@
+using WebApplication2.ShopingViewModel;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+using System.Web.Mvc;
+using WebApplication2.Models;
+using ProductStoreApp.Models;
+
+namespace WebApplication2.Controllers
+{
+    public class ShopingCartController : Controller
+    {
+        ProductStoreEntities db = new ProductStoreEntities();
+       
+        public ActionResult ListItems()
+        {
+            var m = db.Carts.Where(x=> x.IsDeleted == null).ToList();
+            return View(m);
+        }
+
+        public ActionResult Index()
+        {
+            var cart = ShopingCart.GetCart(this.HttpContext);
+            var shop = new ShopingCartViewModel
+            {
+                CartItem = cart.GetCartItem(),
+                CartTotal = cart.GetTotal(),
+                Quantities = cart.GetCount()
+            };
+            return View(shop);
+        }
+        public ActionResult CheckOut()
+        {
+            return View();
+        }
+        public ActionResult AddToCart(int id)
+        {
+            var addedItem = db.Products.Single(x => x.ProductId == id);
+
+            var cart = ShopingCart.GetCart(this.HttpContext);
+            cart.AddtoCart(addedItem);
+            return RedirectToAction("Index", "ShopingCart");
+        }
+        public ActionResult Remove(int id)
+        {
+            ProductStoreEntities db = new ProductStoreEntities();
+
+            var m = db.Carts.SingleOrDefault(x => x.RecordId == id);
+            return View(m);
+        }
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public ActionResult Remove(int id,Cart cr)
+        {
+            ProductStoreEntities db = new ProductStoreEntities();
+            try
+            {
+                if (ModelState.IsValid)
+                {
+                    cr = db.Carts.SingleOrDefault(x=> x.IsDeleted == null & x.RecordId == id);
+                    if(cr != null)
+                    {
+                        cr.IsDeleted = 1;
+                        db.Carts.Remove(cr);
+                        db.SaveChanges();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+            return RedirectToAction("Index");
+        }
+        //[HttpPost]
+        //public ActionResult RemoveFromCart(int id)
+        //{
+        //    var cart = ShopingCart.GetCart(this.HttpContext);
+
+        //    string itemName = db.Carts.Single(x => x.RecordId == id).Product.ProductName;
+
+        //    int itemCount = cart.RemoveFromCart(id);
+
+        //    var result = new ShopingCartRemoveViewModel
+        //    {
+        //        Message = Server.HtmlEncode(itemName) + "Has been removed from your shoping cart",
+        //        CartTotal = cart.GetTotal(),
+        //        CartCount = cart.GetCount(),
+        //        ItemCount = itemCount,
+        //        DeleteId = id
+        //    };
+        //    return Json(result);
+        //}
+        public ActionResult CartSummary()
+        {
+            var cart = ShopingCart.GetCart(this.HttpContext);
+
+            ViewData["CartCount"] = cart.GetCount();
+            return PartialView("CartSummary");
+
+        }
+    }
+}
